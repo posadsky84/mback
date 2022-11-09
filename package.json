@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.1",
+    "jsonwebtoken": "^8.5.1",
+    "pg": "^8.8.0"
+  },
+  "name": "mback",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT"
+}
