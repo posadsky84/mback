@@ -1,4 +1,4 @@
-const {Client} = require('pg');
+const { Client } = require('pg');
 const express = require("express");
 const cors = require("cors");
 const jwt = require('jsonwebtoken');
@@ -32,7 +32,6 @@ order by monthday
 `;
 
 
-
 const sql_rating = `
 select 
    games.id                  game_id,
@@ -50,6 +49,21 @@ from
                                   play_detail.winner = TRUE
 group by game_id, game_name, player_id, player_name`;
 
+const sql_fullStory = `
+select play.id play_id, 
+       cast(play.ddate as char(10)),
+       play.counts counts,
+       play.comment comment,
+       play.game game_id,
+       games.name game_name,
+       play_detail.player player_id,
+       play_detail.score score,
+       play_detail.winner winner
+ from play
+      join games on play.game = games.id
+      join play_detail on play.id = play_detail.play
+order by play.ddate, play.id, play_detail.player`;
+
 
 const app = express();
 const port = 4000;
@@ -61,21 +75,24 @@ app.use(cors());
 
 
 app.use((req, res, next) => {
-  if (/\/login.*/.test(req.url)) {
-    return next();
-  }
-  const token = req.header('Authorization');
-  if (!token) {
-    res.status(401);
-    res.json({message: "no token"});
-    return;
-  }
-  const decodedToken = jwt.verify(token, JWT_SECRET);
-  if (!decodedToken?.login) {
-    res.status(401);
-    res.json({message: "bad token"});
-    return;
-  }
+
+  //Закомменчено ради Манихино - там нет авторизации. Как быть пока неясно
+
+  // if (/\/login.*/.test(req.url)) {
+  //   return next();
+  // }
+  // const token = req.header('Authorization');
+  // if (!token) {
+  //   res.status(401);
+  //   res.json({message: "no token"});
+  //   return;
+  // }
+  // const decodedToken = jwt.verify(token, JWT_SECRET);
+  // if (!decodedToken?.login) {
+  //   res.status(401);
+  //   res.json({message: "bad token"});
+  //   return;
+  // }
 
   next();
 });
@@ -102,15 +119,14 @@ clientKeklog.connect();
 
 
 app.post("/login", async (req, res) => {
-  const {login, password} = req.body;
+  const { login, password } = req.body;
   if (login === FIXED_LOGIN && password === FIXED_PASSWORD) {
     res.status(200);
-    res.json({token: jwt.sign({login}, JWT_SECRET, {expiresIn: `1d`})})
+    res.json({ token: jwt.sign({ login }, JWT_SECRET, { expiresIn: `1d` }) })
   } else {
     res.status(401);
-    res.json({message: "Wrong login/password"});
+    res.json({ message: "Wrong login/password" });
   }
-
 
 
 });
@@ -161,7 +177,7 @@ app.put("/taskchecked/:id", async (req, res) => {
       }
     });
   res.status(200);
-  res.json({message: "OK"});
+  res.json({ message: "OK" });
 });
 
 app.delete("/deletetask/:id", async (req, res) => {
@@ -174,7 +190,7 @@ app.delete("/deletetask/:id", async (req, res) => {
       }
     });
   res.status(200);
-  res.json({message: "OK"});
+  res.json({ message: "OK" });
 });
 
 app.put("/taskcategory/:id", async (req, res) => {
@@ -187,7 +203,7 @@ app.put("/taskcategory/:id", async (req, res) => {
       }
     });
   res.status(200);
-  res.json({message: "OK"});
+  res.json({ message: "OK" });
 });
 
 app.post("/newtask", async (req, res) => {
@@ -207,7 +223,6 @@ app.post("/newtask", async (req, res) => {
 });
 
 
-
 app.put("/taskscore/:id", async (req, res) => {
 
   console.log(req);
@@ -224,7 +239,7 @@ app.put("/taskscore/:id", async (req, res) => {
     });
 
   res.status(200);
-  res.json({message: "OK"});
+  res.json({ message: "OK" });
 
 });
 
@@ -244,10 +259,63 @@ app.put("/taskduration/:id", async (req, res) => {
     });
 
   res.status(200);
-  res.json({message: "OK"});
+  res.json({ message: "OK" });
 
 });
 
+
+app.get("/fullStory", async (req, res) => {
+  await clientManihino.query(sql_fullStory, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+
+    ttt = Object.entries(resss.rows.reduce((res, curItem) => {
+
+      let foundItem = res[curItem.ddate]?.find((item) => item.play_id === curItem.play_id);
+      if (foundItem) {
+        foundItem =
+          {...foundItem,
+           results: [...foundItem.results.filter((item) => item.player_id !== curItem.player_id),
+                      {
+                        player_id: curItem.player_id,
+                        score: curItem.score,
+                      }
+                    ]
+          };
+      } else {
+        foundItem = {
+          play_id: curItem.play_id,
+          counts: curItem.counts,
+          results: [
+            {
+              player_id: curItem.player_id,
+              score: curItem.score,
+            }
+          ]
+        }
+      }
+
+
+      return {...res,
+        [curItem.ddate]: [...res[curItem.ddate]?.filter((item) => item.play_id !== curItem.play_id) || [],
+                          foundItem
+                         ]
+        };
+
+    }, {})).map((item) => {
+      return {
+        ddate: new Date(item[0]),
+        plays: item[1]
+      }
+    }).sort( (a, b) => a.ddate < b.ddate ? 1 : -1);
+
+    res.status(200);
+    res.json(ttt);
+
+  });
+});
 
 
 
