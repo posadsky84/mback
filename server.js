@@ -49,9 +49,17 @@ from
                                   play_detail.winner = TRUE
 group by game_id, game_name, player_id, player_name`;
 
-const sql_fullStory = `
+const sql_calendar = ({season}) => `
+select cast(play.ddate as char(10)) ddate,
+       count(*) cnt
+  from play 
+ where play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
+ group by play.ddate
+`;
+
+const sql_playsDetailed = ({season = null, gameId = null, ddate = null}) => `
 select play.id play_id, 
-       cast(play.ddate as char(10)),
+       cast(play.ddate as char(10)) ddate,
        play.counts counts,
        play.comment comment,
        play.game game_id,
@@ -62,7 +70,11 @@ select play.id play_id,
  from play
       join games on play.game = games.id
       join play_detail on play.id = play_detail.play
-order by play.ddate, play.id, play_detail.player`;
+where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
+       or ${season} is null) and
+      (play.game = ${gameId} or ${gameId} is null) and
+      (play.ddate = ${ddate} or ${ddate} is null)`;
+
 
 
 const app = express();
@@ -263,9 +275,31 @@ app.put("/taskduration/:id", async (req, res) => {
 
 });
 
+app.get("/calendar", async (req, res) => {
 
-app.get("/fullStory", async (req, res) => {
-  await clientManihino.query(sql_fullStory, (err, resss) => {
+  await clientManihino.query(sql_calendar(req.query), (err, ress) => {
+    if (err) {
+      console.log(err);
+      return;
+    }
+
+    const ttt = ress.rows.reduce((res, item) => {
+      return {
+        ...res,
+        [item.ddate]: {cnt: item.cnt}
+      };
+    }, {});
+
+    res.status(200);
+    res.json(ttt);
+
+
+  });
+});
+
+app.get("/playsDetailed", async (req, res) => {
+
+  await clientManihino.query(sql_playsDetailed(req.query), (err, resss) => {
     if (err) {
       console.error(err);
       return;
@@ -273,24 +307,26 @@ app.get("/fullStory", async (req, res) => {
 
     ttt = Object.entries(resss.rows.reduce((res, curItem) => {
 
-      let foundItem = res[curItem.ddate]?.find((item) => item.play_id === curItem.play_id);
+      let foundItem = res[curItem.ddate]?.find((item) => item.playId === curItem.play_id);
       if (foundItem) {
         foundItem =
           {...foundItem,
-           results: [...foundItem.results.filter((item) => item.player_id !== curItem.player_id),
+           results: [...foundItem.results.filter((item) => item.playerId !== curItem.player_id),
                       {
-                        player_id: curItem.player_id,
+                        playerId: curItem.player_id,
                         score: curItem.score,
                       }
                     ]
           };
       } else {
         foundItem = {
-          play_id: curItem.play_id,
+          playId: curItem.play_id,
+          gameId: curItem.game_id,
+          game_name: curItem.game_name,
           counts: curItem.counts,
           results: [
             {
-              player_id: curItem.player_id,
+              playerId: curItem.player_id,
               score: curItem.score,
             }
           ]
@@ -299,7 +335,7 @@ app.get("/fullStory", async (req, res) => {
 
 
       return {...res,
-        [curItem.ddate]: [...res[curItem.ddate]?.filter((item) => item.play_id !== curItem.play_id) || [],
+        [curItem.ddate]: [...res[curItem.ddate]?.filter((item) => item.playId !== curItem.play_id) || [],
                           foundItem
                          ]
         };
@@ -307,9 +343,12 @@ app.get("/fullStory", async (req, res) => {
     }, {})).map((item) => {
       return {
         ddate: new Date(item[0]),
-        plays: item[1]
+        plays: item[1].map((item) => ({
+          ...item,
+          results: item.results.sort((a,b) => a.playerId > b.playerId ? 1 : -1)
+        }))
       }
-    }).sort( (a, b) => a.ddate < b.ddate ? 1 : -1);
+    }).sort( (a, b) => a.ddate > b.ddate ? 1 : -1);
 
     res.status(200);
     res.json(ttt);
