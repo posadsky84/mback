@@ -31,6 +31,7 @@ group by monthday
 order by monthday
 `;
 
+const sql_players = `select id, name from players`;
 
 const sql_rating = `
 select 
@@ -315,6 +316,7 @@ app.get("/playsDetailed", async (req, res) => {
                       {
                         playerId: curItem.player_id,
                         score: curItem.score,
+                        winner: curItem.winner,
                       }
                     ]
           };
@@ -322,12 +324,13 @@ app.get("/playsDetailed", async (req, res) => {
         foundItem = {
           playId: curItem.play_id,
           gameId: curItem.game_id,
-          game_name: curItem.game_name,
+          gameName: curItem.game_name,
           counts: curItem.counts,
           results: [
             {
               playerId: curItem.player_id,
               score: curItem.score,
+              winner: curItem.winner,
             }
           ]
         }
@@ -356,7 +359,16 @@ app.get("/playsDetailed", async (req, res) => {
   });
 });
 
-
+app.get("/players", async (req, res) => {
+  await clientManihino.query(sql_players, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    res.status(200);
+    res.json(resss.rows);
+  });
+});
 
 app.get("/rating", async (req, res) => {
 
