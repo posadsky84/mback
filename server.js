@@ -31,6 +31,19 @@ group by monthday
 order by monthday
 `;
 
+const sql_addPlay = (data) => `  
+WITH genid AS 
+(
+insert into play (id, ddate, game, counts, comment)
+values (nextval('play_id'), '${data.ddate}', ${data.gameId}, ${data.counts}, 
+ ${data.comment ? "'"+data.comment+"'" : null}) returning id
+)
+insert into play_detail (play, player, score, winner)
+values ${data.players.map((item) => {
+  return `((select id from genid), ${item.playerId}, ${item.score}, ${item.winner})`;
+}).toString()} returning play;`;
+
+
 const sql_players = `select id, name from players`;
 
 const sql_rating = `
@@ -62,7 +75,7 @@ const sql_playsDetailed = ({season = null, gameId = null, ddate = null}) => `
 select play.id play_id, 
        cast(play.ddate as char(10)) ddate,
        play.counts counts,
-       play.comment comment,
+       play.comment "comment",
        play.game game_id,
        games.name game_name,
        play_detail.player player_id,
@@ -217,6 +230,18 @@ app.put("/taskcategory/:id", async (req, res) => {
     });
   res.status(200);
   res.json({ message: "OK" });
+});
+
+app.post("/addPlay", async (req, res) => {
+  await clientManihino.query(sql_addPlay(req.body),
+    (err, resss) => {
+      if (err) {
+        console.error(err);
+      } else {
+        res.status(200);
+        res.json(resss.rows[0]);
+      }
+    });
 });
 
 app.post("/newtask", async (req, res) => {
