@@ -45,6 +45,7 @@ values ${data.players.map((item) => {
 
 
 const sql_players = `select id, name from players`;
+const sql_games = `select id, name from games`;
 
 const sql_rating = `
 select 
@@ -381,6 +382,17 @@ app.get("/playsDetailed", async (req, res) => {
     res.status(200);
     res.json(ttt);
 
+  });
+});
+
+app.get("/games", async (req, res) => {
+  await clientManihino.query(sql_games, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    res.status(200);
+    res.json(resss.rows);
   });
 });
 
