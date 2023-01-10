@@ -47,7 +47,7 @@ values ${data.players.map((item) => {
 const sql_players = `select id, name from players`;
 const sql_games = `select id, name from games`;
 
-const sql_rating = `
+const sql_rating = ({season}) => `
 select 
    games.id                  game_id,
    games.name                game_name,
@@ -62,6 +62,8 @@ from
    left outer join play_detail on play_detail.play = play.id and
                                   play_detail.player = players.id and
                                   play_detail.winner = TRUE
+ where play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31) and
+       play.counts = TRUE                                 
 group by game_id, game_name, player_id, player_name`;
 
 const sql_calendar = ({season}) => `
@@ -84,7 +86,7 @@ select play.id play_id,
        play_detail.winner winner
  from play
       join games on play.game = games.id
-      join play_detail on play.id = play_detail.play
+      left outer join play_detail on play.id = play_detail.play
 where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
        or ${season} is null) and
       (play.game = ${gameId} or ${gameId} is null) and
@@ -234,6 +236,7 @@ app.put("/taskcategory/:id", async (req, res) => {
 });
 
 app.post("/addPlay", async (req, res) => {
+  console.log(sql_addPlay(req.body));
   await clientManihino.query(sql_addPlay(req.body),
     (err, resss) => {
       if (err) {
@@ -352,6 +355,7 @@ app.get("/playsDetailed", async (req, res) => {
           gameId: curItem.game_id,
           gameName: curItem.game_name,
           counts: curItem.counts,
+          comment: curItem.comment,
           results: [
             {
               playerId: curItem.player_id,
@@ -396,6 +400,20 @@ app.get("/games", async (req, res) => {
   });
 });
 
+app.get("/allSeasons", async (req, res) => {
+  await clientManihino.query(`select distinct date_part('year', ddate) ddate from play order by ddate desc`,
+    (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    res.status(200);
+    res.json(resss.rows.map(item => item.ddate));
+  });
+});
+
+
+
 app.get("/players", async (req, res) => {
   await clientManihino.query(sql_players, (err, resss) => {
     if (err) {
@@ -409,7 +427,7 @@ app.get("/players", async (req, res) => {
 
 app.get("/rating", async (req, res) => {
 
-  await clientManihino.query(sql_rating, (err, resss) => {
+  await clientManihino.query(sql_rating(req.query), (err, resss) => {
     if (err) {
       console.error(err);
       return;
