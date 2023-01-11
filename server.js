@@ -61,9 +61,9 @@ from
    cross join players
    left outer join play_detail on play_detail.play = play.id and
                                   play_detail.player = players.id and
-                                  play_detail.winner = TRUE
- where play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31) and
-       play.counts = TRUE                                 
+                                  play_detail.winner = TRUE and
+                                  play.counts = TRUE
+ where play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)                         
 group by game_id, game_name, player_id, player_name`;
 
 const sql_calendar = ({season}) => `
