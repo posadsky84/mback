@@ -10,7 +10,7 @@ const JWT_SECRET = '68A9169C47139E6661AA6C35D218C';
 
 const sql_tasks = (ddate) => `
 select id id,
-       name   name,
+       name   "name",
        checked    checked,
        score      score,
        category   category,
@@ -19,6 +19,8 @@ select id id,
  where ddate = '${ddate}' 
 order by id 
 `;
+
+const sql_get_location = ddate => `select location from ddates where ddate = '${ddate}'`;
 
 const sql_ddates = (ddateb, ddatee) => `
 select extract(
@@ -186,6 +188,18 @@ app.get("/tasks", async (req, res) => {
 
 app.get("/ddates", async (req, res) => {
   await clientKeklog.query(sql_ddates(req.query.ddateb, req.query.ddatee), (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    ttt = resss.rows;
+    res.status(200);
+    res.json(ttt);
+  });
+});
+
+app.get("/location", async (req, res) => {
+  await clientKeklog.query(sql_get_location(req.query.ddate), (err, resss) => {
     if (err) {
       console.error(err);
       return;
@@ -391,6 +405,17 @@ app.get("/playsDetailed", async (req, res) => {
 
 app.get("/games", async (req, res) => {
   await clientManihino.query(sql_games, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    res.status(200);
+    res.json(resss.rows);
+  });
+});
+
+app.get("/locations", async (req, res) => {
+  await clientKeklog.query("select id, name from locations order by name", (err, resss) => {
     if (err) {
       console.error(err);
       return;
