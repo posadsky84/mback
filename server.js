@@ -462,14 +462,14 @@ app.get("/rating", async (req, res) => {
       return {
         ...result,
         [curItem.game_id]: {
-          game_id: curItem.game_id,
+          gameId: curItem.game_id,
           cnt: curItem.cnt,
-          game_name: curItem.game_name,
+          gameName: curItem.game_name,
           results: [
             ...(result[curItem.game_id]?.results || []),
             {
-              player_id: curItem.player_id,
-              player_name: curItem.player_name,
+              playerId: curItem.player_id,
+              playerName: curItem.player_name,
               wins: curItem.wins,
             },
           ]
