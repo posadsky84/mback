@@ -145,8 +145,17 @@ const clientKeklog = new Client({
   port: 5432,
 });
 
+const clientRunchall = new Client({
+  user: 'postgres',
+  host: 'localhost',
+  database: 'runchall',
+  password: 'postgres',
+  port: 5432,
+});
+
 clientManihino.connect(); //Нужно наверное статус подключения проверять при запросе
 clientKeklog.connect();
+clientRunchall.connect();
 
 
 app.post("/login", async (req, res) => {
@@ -483,6 +492,19 @@ app.get("/rating", async (req, res) => {
     //client.end();
   });
 });
+
+
+app.get("/runchall", async (req, res) => {
+  await clientRunchall.query("select * from run order by ddate, id", (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    res.status(200);
+    res.json(resss.rows);
+  });
+});
+
 
 
 app.listen(port, () => {
