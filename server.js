@@ -46,7 +46,7 @@ values ${data.players.map((item) => {
 }).toString()} returning play;`;
 
 
-const sql_players = `select id, name from players`;
+const sql_players = `select players.id id, players.name "name", users.ava ava from players join users on users.player = players.id`;
 const sql_games = `select id, name from games`;
 
 const sql_rating = ({season}) => `
@@ -85,7 +85,8 @@ select play.id play_id,
        games.name game_name,
        play_detail.player player_id,
        play_detail.score score,
-       play_detail.winner winner
+       play_detail.winner winner,
+       (select count(*) from comm where play_id = play.id) comm_count
  from play
       join games on play.game = games.id
       left outer join play_detail on play.id = play_detail.play
@@ -109,7 +110,7 @@ app.use((req, res, next) => {
 
   //Закомменчено ради Манихино - там нет авторизации. Как быть пока неясно
 
-  // if (/\/login.*/.test(req.url)) {
+  // iтf (/\/login.*/.test(req.url)) {
   //   return next();
   // }
   // const token = req.header('Authorization');
@@ -128,10 +129,12 @@ app.use((req, res, next) => {
   next();
 });
 
+const host = 'localhost';
+//const host = '193.124.112.79';
 
 const clientManihino = new Client({
-  user: 'postgres',
-  host: 'localhost',
+  user: 'mback',
+  host,
   database: 'manihino',
   password: 'postgres',
   port: 5432,
@@ -139,7 +142,7 @@ const clientManihino = new Client({
 
 const clientKeklog = new Client({
   user: 'postgres',
-  host: 'localhost',
+  host,
   database: 'keklog',
   password: 'postgres',
   port: 5432,
@@ -147,15 +150,15 @@ const clientKeklog = new Client({
 
 const clientRunchall = new Client({
   user: 'postgres',
-  host: 'localhost',
+  host,
   database: 'runchall',
   password: 'postgres',
   port: 5432,
 });
 
 clientManihino.connect(); //Нужно наверное статус подключения проверять при запросе
-clientKeklog.connect();
-clientRunchall.connect();
+//clientKeklog.connect();
+//clientRunchall.connect();
 
 
 app.post("/login", async (req, res) => {
@@ -170,6 +173,47 @@ app.post("/login", async (req, res) => {
 
 
 });
+
+app.post("/manihino-login", async (req, res) => {
+
+  await clientManihino.query(
+          `select users.id, players.name 
+             from users join players on players.id = users.player 
+            where users.login = '${req.body.login}' and users.pass = '${req.body.password}'`, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+
+     if (resss.rows.length === 1) {
+       res.status(200);
+       res.json({ token: jwt.sign({ id: resss.rows[0].id }, JWT_SECRET, { expiresIn: `1d` }) })
+     } else {
+
+     }
+
+   });
+});
+
+app.get("/manihino-user-current", async (req, res) => {
+
+  const decoded = jwt.decode(req.headers.authorization);
+
+  await clientManihino.query(
+    `select players.name players_name, users.ava ava
+             from users join players on players.id = users.player 
+            where users.id = ${decoded.id}`, (err, resss) => {
+      if (err) {
+        console.error(err);
+        return;
+      }
+
+      res.status(200);
+      res.json({loginName: resss.rows[0].players_name, ava: resss.rows[0].ava});
+
+
+    });
+})
 
 app.get("/category", async (req, res) => {
   await clientKeklog.query(`select id, name, color from category order by id`, (err, resss) => {
@@ -270,6 +314,30 @@ app.post("/addPlay", async (req, res) => {
       }
     });
 });
+
+app.post("/addCommentary", async (req, res) => {
+  //console.log(sql_addPlay(req.body));
+  const decoded = jwt.decode(req.headers.authorization);
+  const query =
+    `insert into comm(id, play_id, user_id, ddate, text)
+     select nextval('comm_id'), ${req.body.playId}, ${decoded.id}, now(), '${req.body.text}' RETURNING *`;
+
+  //onsole.log(query);
+  //res.status(200);
+
+  await clientManihino.query(query,
+    (err, resss) => {
+      if (err) {
+        console.error(err);
+        return;
+      } else {
+        res.status(200);
+        res.json(resss.rows[0]);
+        console.log(resss.rows[0]);
+      }
+    });
+});
+
 
 app.post("/newtask", async (req, res) => {
 
@@ -379,6 +447,7 @@ app.get("/playsDetailed", async (req, res) => {
           gameName: curItem.game_name,
           counts: curItem.counts,
           comment: curItem.comment,
+          commCount: curItem.comm_count,
           results: [
             {
               playerId: curItem.player_id,
@@ -423,6 +492,26 @@ app.get("/games", async (req, res) => {
   });
 });
 
+app.get("/commentary", async (req,res) => {
+  await clientManihino.query(
+    `select comm.ddate ddate,
+            players.id playerid,
+            players.name playername,
+	          comm.text commtext
+       from comm
+            join users on comm.user_id = users.id
+	          join players on users.player = players.id
+	    where comm.play_id = ${req.query.playId}      
+   order by comm.ddate`, (err, resss) => {
+      if (err) {
+        console.error(err);
+        return;
+      }
+      res.status(200);
+      res.json(resss.rows);
+    });
+});
+
 app.get("/locations", async (req, res) => {
   await clientKeklog.query("select id, name from locations order by name", (err, resss) => {
     if (err) {
@@ -435,7 +524,7 @@ app.get("/locations", async (req, res) => {
 });
 
 app.get("/allSeasons", async (req, res) => {
-  await clientManihino.query(`select distinct date_part('year', ddate) ddate from play order by ddate desc`,
+  await clientManihino.query(`select distinct date_part('year', ddate) ddate from play union select date_part('year', NOW()) order by 1 desc`,
     (err, resss) => {
     if (err) {
       console.error(err);
@@ -506,6 +595,34 @@ app.get("/runchall", async (req, res) => {
 });
 
 
+app.post("/addRun", async (req, res) => {
+
+  console.log(req.body);
+
+  await clientRunchall.query(
+    `insert into run (id, name, ddate, distance, durationsec, walkintervalsec, runintervalsec, vrunkmsec, temperature, comment)
+     select nextval('run_id'),
+           '${req.body.name}', 
+           '${req.body.ddate}',
+           '${req.body.distance}',
+           '${req.body.durationsec}',
+           '${req.body.walkintervalsec}',
+           '${req.body.runintervalsec}',
+           '${req.body.vrunkmsec}',           
+           '${req.body.temperature}',           
+           '${req.body.comment}'          
+     RETURNING *;`,
+    (err, resss) => {
+      if (err) {
+        console.error(err);
+        return;
+      } else {
+        res.status(200);
+        res.json(resss.rows[0]);
+      }
+    });
+
+});
 
 app.listen(port, () => {
   console.log("listening sample message");
