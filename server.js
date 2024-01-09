@@ -49,24 +49,36 @@ values ${data.players.map((item) => {
 const sql_players = `select players.id id, players.name "name", users.ava ava from players join users on users.player = players.id`;
 const sql_games = `select id, name from games`;
 
-const sql_rating = ({season}) => `
+const sql_rating = (season, userId) => `
+WITH unreads AS (select games.id game_id,
+       SUM(case when comm_notification.play_id is null then 1 else 0 end) cnt
+  from games
+       join play on play.game = games.id
+	   left outer join comm_notification on comm_notification.play_id = play.id and
+	                   comm_notification.user_id = ${userId}
+ where ${userId} is not null and
+       play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31) and
+       exists (select * from comm where comm.play_id = play.id) 
+group by games.id)
 select 
    games.id                  game_id,
    games.name                game_name,
    COUNT(distinct play.id)   cnt,
    players.id                player_id,
    players.name              player_name,
-   COUNT(play_detail.play)   wins   
+   COUNT(play_detail.play)   wins,
+   COALESCE(unreads.cnt, 0)  unreads	 
 from
    play
    join games on play.game = games.id
+   left outer join unreads on unreads.game_id = games.id
    cross join players
    left outer join play_detail on play_detail.play = play.id and
                                   play_detail.player = players.id and
                                   play_detail.winner = TRUE and
                                   play.counts = TRUE
  where play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)                         
-group by game_id, game_name, player_id, player_name`;
+group by games.id, game_name, player_id, player_name, unreads.cnt`;
 
 const sql_calendar = ({season}) => `
 select cast(play.ddate as char(10)) ddate,
@@ -76,7 +88,19 @@ select cast(play.ddate as char(10)) ddate,
  group by play.ddate
 `;
 
-const sql_playsDetailed = ({season = null, gameId = null, ddate = null}) => `
+const sql_playsDetailed = (season = null, gameId = null, ddate = null, userId = null) => `
+WITH unreads AS (
+  select play.id play_id,
+       case when comm_notification.play_id is null then 1 else 0 end unread_flag
+  from play
+ left outer join comm_notification on comm_notification.play_id = play.id and
+                comm_notification.user_id = ${userId}
+where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
+       or ${season} is null) and
+      (play.game = ${gameId} or ${gameId} is null) and
+      (play.ddate = ${ddate} or ${ddate} is null)
+and exists (select * from comm where comm.play_id = play.id) 
+)  
 select play.id play_id, 
        cast(play.ddate as char(10)) ddate,
        play.counts counts,
@@ -86,10 +110,11 @@ select play.id play_id,
        play_detail.player player_id,
        play_detail.score score,
        play_detail.winner winner,
-       (select count(*) from comm where play_id = play.id) comm_count
+       coalesce(unreads.unread_flag, 0) unreads    
  from play
       join games on play.game = games.id
       left outer join play_detail on play.id = play_detail.play
+      left outer join unreads on unreads.play_id = play.id
 where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
        or ${season} is null) and
       (play.game = ${gameId} or ${gameId} is null) and
@@ -420,7 +445,9 @@ app.get("/calendar", async (req, res) => {
 
 app.get("/playsDetailed", async (req, res) => {
 
-  await clientManihino.query(sql_playsDetailed(req.query), (err, resss) => {
+  const decoded = jwt.decode(req.headers.authorization);
+
+  await clientManihino.query(sql_playsDetailed(req.query.season, req.query.gameId, req.query.ddate, decoded.id), (err, resss) => {
     if (err) {
       console.error(err);
       return;
@@ -448,6 +475,7 @@ app.get("/playsDetailed", async (req, res) => {
           counts: curItem.counts,
           comment: curItem.comment,
           commCount: curItem.comm_count,
+          unreads: +curItem.unreads,
           results: [
             {
               playerId: curItem.player_id,
@@ -549,8 +577,9 @@ app.get("/players", async (req, res) => {
 });
 
 app.get("/rating", async (req, res) => {
+  const decoded = jwt.decode(req.headers.authorization);
 
-  await clientManihino.query(sql_rating(req.query), (err, resss) => {
+  await clientManihino.query(sql_rating(req.query.season, decoded.id), (err, resss) => {
     if (err) {
       console.error(err);
       return;
@@ -563,6 +592,7 @@ app.get("/rating", async (req, res) => {
           gameId: curItem.game_id,
           cnt: curItem.cnt,
           gameName: curItem.game_name,
+          unreads: +curItem.unreads,
           results: [
             ...(result[curItem.game_id]?.results || []),
             {
