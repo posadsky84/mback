@@ -51,14 +51,15 @@ const sql_games = `select id, name from games`;
 
 const sql_rating = (season, userId) => `
 WITH unreads AS (select games.id game_id,
-       SUM(case when comm_notification.play_id is null then 1 else 0 end) cnt
+       SUM(case when 
+       coalesce(comm_notification.last_read_comm_id, 0) <> coalesce((select MAX(id) from comm where comm.play_id = play.id), 0) 
+                then 1 else 0 end) cnt
   from games
        join play on play.game = games.id
 	   left outer join comm_notification on comm_notification.play_id = play.id and
 	                   comm_notification.user_id = ${userId}
  where ${userId} is not null and
-       play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31) and
-       exists (select * from comm where comm.play_id = play.id) 
+       play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
 group by games.id)
 select 
    games.id                  game_id,
@@ -91,7 +92,9 @@ select cast(play.ddate as char(10)) ddate,
 const sql_playsDetailed = (season = null, gameId = null, ddate = null, userId = null) => `
 WITH unreads AS (
   select play.id play_id,
-       case when comm_notification.play_id is null then 1 else 0 end unread_flag
+      (select coalesce(MAX(1), 0) from comm where play_id = play.id) comm_exist,
+       case when coalesce(comm_notification.last_read_comm_id, 0) <> coalesce((select MAX(id) from comm where play_id = play.id), 0)
+            then 1 else 0 end unread_flag            
   from play
  left outer join comm_notification on comm_notification.play_id = play.id and
                 comm_notification.user_id = ${userId}
@@ -99,7 +102,6 @@ where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12
        or ${season} is null) and
       (play.game = ${gameId} or ${gameId} is null) and
       (play.ddate = ${ddate} or ${ddate} is null)
-and exists (select * from comm where comm.play_id = play.id) 
 )  
 select play.id play_id, 
        cast(play.ddate as char(10)) ddate,
@@ -110,7 +112,8 @@ select play.id play_id,
        play_detail.player player_id,
        play_detail.score score,
        play_detail.winner winner,
-       coalesce(unreads.unread_flag, 0) unreads    
+       coalesce(unreads.unread_flag, 0) unreads,
+       coalesce(unreads.comm_exist, 0) comm_exist    
  from play
       join games on play.game = games.id
       left outer join play_detail on play.id = play_detail.play
@@ -340,15 +343,32 @@ app.post("/addPlay", async (req, res) => {
     });
 });
 
+app.post("/markCommAsRead", async (req, res) => {
+
+  const decoded = jwt.decode(req.headers.authorization);
+  clientManihino.query(`delete from comm_notification where play_id=${req.body.playId} and user_id=${decoded.id}`, (err, resss) => {
+    if (err) {
+      console.error(err);
+      return;
+    } else {
+      clientManihino.query(
+        `insert into comm_notification (play_id, user_id, last_read_comm_id)
+         select ${req.body.playId}, ${decoded.id}, (select max(id) from comm where play_id = ${req.body.playId})
+        `, err => {
+        if (err) {
+          console.error(err);
+          return;
+        }
+      });
+    }
+  });
+});
+
 app.post("/addCommentary", async (req, res) => {
-  //console.log(sql_addPlay(req.body));
   const decoded = jwt.decode(req.headers.authorization);
   const query =
     `insert into comm(id, play_id, user_id, ddate, text)
      select nextval('comm_id'), ${req.body.playId}, ${decoded.id}, now(), '${req.body.text}' RETURNING *`;
-
-  //onsole.log(query);
-  //res.status(200);
 
   await clientManihino.query(query,
     (err, resss) => {
@@ -474,7 +494,7 @@ app.get("/playsDetailed", async (req, res) => {
           gameName: curItem.game_name,
           counts: curItem.counts,
           comment: curItem.comment,
-          commCount: curItem.comm_count,
+          commExist: curItem.comm_exist,
           unreads: +curItem.unreads,
           results: [
             {
@@ -521,14 +541,20 @@ app.get("/games", async (req, res) => {
 });
 
 app.get("/commentary", async (req,res) => {
+  const decoded = jwt.decode(req.headers.authorization);
+
   await clientManihino.query(
-    `select comm.ddate ddate,
-            players.id playerid,
-            players.name playername,
-	          comm.text commtext
+    `select comm.ddate "ddate",
+            players.id "playerId",
+            players.name "playerName",
+	          comm.text "commText",
+	          case when comm_notification.play_id is not null then 1 else 0 end "lastReadFlag"         
        from comm
             join users on comm.user_id = users.id
 	          join players on users.player = players.id
+	          left outer join comm_notification on comm_notification.play_id = comm.play_id and
+	                                               comm_notification.user_id = ${decoded.id} and
+	                                               comm_notification.last_read_comm_id = comm.id
 	    where comm.play_id = ${req.query.playId}      
    order by comm.ddate`, (err, resss) => {
       if (err) {
