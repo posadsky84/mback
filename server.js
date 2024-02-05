@@ -346,22 +346,18 @@ app.post("/addPlay", async (req, res) => {
 app.post("/markCommAsRead", async (req, res) => {
 
   const decoded = jwt.decode(req.headers.authorization);
-  clientManihino.query(`delete from comm_notification where play_id=${req.body.playId} and user_id=${decoded.id}`, (err, resss) => {
-    if (err) {
-      console.error(err);
-      return;
-    } else {
-      clientManihino.query(
-        `insert into comm_notification (play_id, user_id, last_read_comm_id)
-         select ${req.body.playId}, ${decoded.id}, (select max(id) from comm where play_id = ${req.body.playId})
-        `, err => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-      });
-    }
-  });
+  try {
+    await clientManihino.query(`delete from comm_notification where play_id=${req.body.playId} and user_id=${decoded.id}`);
+    await clientManihino.query(
+      `insert into comm_notification (play_id, user_id, last_read_comm_id)
+           select ${req.body.playId}, ${decoded.id}, (select max(id) from comm where play_id = ${req.body.playId})
+          `);
+    res.status(200);
+    res.json({ message: "OK" });
+  } catch (err) {
+    console.log(err);
+  }
+
 });
 
 app.post("/addCommentary", async (req, res) => {
