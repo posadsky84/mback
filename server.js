@@ -53,12 +53,13 @@ const sql_rating = (season, userId) => `
 WITH unreads AS (select games.id game_id,
        SUM(case when 
        coalesce(comm_notification.last_read_comm_id, 0) <> coalesce((select MAX(id) from comm where comm.play_id = play.id), 0) 
+                and ${userId ? userId : "null"} is not null
                 then 1 else 0 end) cnt
   from games
        join play on play.game = games.id
 	   left outer join comm_notification on comm_notification.play_id = play.id and
-	                   comm_notification.user_id = ${userId}
- where ${userId} is not null and
+	                   comm_notification.user_id = ${userId ? userId : "null"}
+ where ${userId ? userId : "null"} is not null and
        play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
 group by games.id)
 select 
@@ -94,10 +95,11 @@ WITH unreads AS (
   select play.id play_id,
       (select coalesce(MAX(1), 0) from comm where play_id = play.id) comm_exist,
        case when coalesce(comm_notification.last_read_comm_id, 0) <> coalesce((select MAX(id) from comm where play_id = play.id), 0)
+            and ${userId ? userId : "null"} is not null
             then 1 else 0 end unread_flag            
   from play
  left outer join comm_notification on comm_notification.play_id = play.id and
-                comm_notification.user_id = ${userId}
+                comm_notification.user_id = ${userId ? userId : "null"}
 where (play.ddate between make_date(${season}, 1, 1) and make_date(${season}, 12, 31)
        or ${season} is null) and
       (play.game = ${gameId} or ${gameId} is null) and
@@ -477,7 +479,7 @@ app.get("/playsDetailed", async (req, res) => {
 
   const decoded = jwt.decode(req.headers.authorization);
 
-  await clientManihino.query(sql_playsDetailed(req.query.season, req.query.gameId, req.query.ddate, decoded.id), (err, resss) => {
+  await clientManihino.query(sql_playsDetailed(req.query.season, req.query.gameId, req.query.ddate, decoded?.id), (err, resss) => {
     if (err) {
       console.error(err);
       return;
@@ -563,7 +565,7 @@ app.get("/commentary", async (req,res) => {
             join users on comm.user_id = users.id
 	          join players on users.player = players.id
 	          left outer join comm_notification on comm_notification.play_id = comm.play_id and
-	                                               comm_notification.user_id = ${decoded.id} and
+	                                               comm_notification.user_id = ${decoded ? decoded.id : "null"} and
 	                                               comm_notification.last_read_comm_id = comm.id
 	    where comm.play_id = ${req.query.playId}      
    order by comm.ddate`, (err, resss) => {
@@ -615,7 +617,7 @@ app.get("/players", async (req, res) => {
 app.get("/rating", async (req, res) => {
   const decoded = jwt.decode(req.headers.authorization);
 
-  await clientManihino.query(sql_rating(req.query.season, decoded.id), (err, resss) => {
+  await clientManihino.query(sql_rating(req.query.season, decoded?.id), (err, resss) => {
     if (err) {
       console.error(err);
       return;
