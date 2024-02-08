@@ -228,8 +228,10 @@ app.get("/manihino-user-current", async (req, res) => {
   const decoded = jwt.decode(req.headers.authorization);
 
   await clientManihino.query(
-    `select players.name players_name, users.ava ava
-             from users join players on players.id = users.player 
+    `select players.id "playersId",
+            players.name "playersName",
+            users.ava "ava"
+       from users join players on players.id = users.player 
             where users.id = ${decoded.id}`, (err, resss) => {
       if (err) {
         console.error(err);
@@ -237,7 +239,7 @@ app.get("/manihino-user-current", async (req, res) => {
       }
 
       res.status(200);
-      res.json({loginName: resss.rows[0].players_name, ava: resss.rows[0].ava});
+      res.json({id: resss.rows[0].playersId, loginName: resss.rows[0].playersName, ava: resss.rows[0].ava});
 
 
     });
@@ -362,21 +364,33 @@ app.post("/markCommAsRead", async (req, res) => {
 
 app.post("/addCommentary", async (req, res) => {
   const decoded = jwt.decode(req.headers.authorization);
-  const query =
-    `insert into comm(id, play_id, user_id, ddate, text)
-     select nextval('comm_id'), ${req.body.playId}, ${decoded.id}, now(), '${req.body.text}' RETURNING *`;
+  try {
+    const res1 = await clientManihino.query(
+      `select last_read_comm_id comm_id from comm_notification where play_id = ${req.body.playId} and user_id = ${decoded.id}`
+    );
+    const res2 = await clientManihino.query(
+      `select id comm_id from comm where play_id = ${req.body.playId} order by ddate desc limit 1`
+    );
+    const query =
+      `insert into comm(id, play_id, user_id, ddate, text)
+       select nextval('comm_id'), ${req.body.playId}, ${decoded.id}, now(), '${req.body.text}' RETURNING *`;
+    const res3 = await clientManihino.query(query);
 
-  await clientManihino.query(query,
-    (err, resss) => {
-      if (err) {
-        console.error(err);
-        return;
-      } else {
-        res.status(200);
-        res.json(resss.rows[0]);
-        console.log(resss.rows[0]);
-      }
-    });
+    if (!res2.rows.length || res1.rows[0].comm_id === res2.rows[0].comm_id) {
+      await clientManihino.query(`delete from comm_notification where play_id=${req.body.playId} and user_id=${decoded.id}`);
+      await clientManihino.query(
+        `insert into comm_notification (play_id, user_id, last_read_comm_id)
+           select ${req.body.playId}, ${decoded.id}, ${res3.rows[0].id}
+          `);
+    }
+    res.status(200);
+    res.json(res3.rows[0]);
+
+  } catch (err) {
+    console.log(err);
+  }
+
+
 });
 
 
